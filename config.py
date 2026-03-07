@@ -28,6 +28,7 @@ SUPPORTED_EXTENSIONS = {
 
 IGNORED_DIRS = {
     ".git", "node_modules", "__pycache__",
-    ".venv", "dist", "build"
+    ".venv", "dist", "build"   
+    #HELLO
 }
 
