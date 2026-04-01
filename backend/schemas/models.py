@@ -10,3 +10,11 @@ class QueryRequest(BaseModel):
     repo_name: str
     user_id: str
     top_k: Optional[int]=8
+
+class SignupRequest(BaseModel):
+    email: str
+    password: str
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str

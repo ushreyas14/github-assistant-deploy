@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from backend.schemas.models import IngestRequest
+from backend.schemas.models import IngestRequest, QueryRequest
 from ingestion.cloner import clone_or_pull
 from ingestion.loader import load_repo_documents
 from ingestion.chunker import chunk_documents
