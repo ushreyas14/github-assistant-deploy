@@ -18,6 +18,11 @@ st.caption("Powered by Groq · LangChain · Pinecone")
 with st.sidebar:
     st.header("📦 Load a Repository")
 
+    user_id = st.text_input(
+        "User ID",
+        placeholder="Supabase user UUID"
+    )
+
     repo_url = st.text_input(
         "GitHub URL",
         placeholder="https://github.com/owner/repo"
@@ -31,7 +36,9 @@ with st.sidebar:
 
     # ── Ingest fresh repo ──────────────────────────────────
     if ingest_btn:
-        if not repo_url:
+        if not user_id:
+            st.error("Please enter your Supabase user ID")
+        elif not repo_url:
             st.error("Please enter a GitHub URL")
         else:
             with st.status("Processing...", expanded=True) as status:
@@ -45,22 +52,26 @@ with st.sidebar:
                 chunks = chunk_documents(docs)
 
                 st.write(f"📌 Uploading {len(chunks)} chunks to Pinecone...")
-                ingest_to_pinecone(chunks, name)
+                ingest_to_pinecone(chunks, name, user_id)
 
                 status.update(label="✅ Ready!", state="complete")
 
             st.session_state["repo_name"] = name
+            st.session_state["user_id"] = user_id
             st.session_state["messages"]  = []
             st.session_state["chain"]     = None
             st.session_state["retriever"] = None
 
     # ── Load already ingested repo ─────────────────────────
     if load_btn:
-        if not repo_url:
+        if not user_id:
+            st.error("Please enter your Supabase user ID")
+        elif not repo_url:
             st.error("Please enter a GitHub URL")
         else:
             name = repo_url.rstrip("/").split("/")[-1].replace(".git", "")
             st.session_state["repo_name"] = name
+            st.session_state["user_id"] = user_id
             st.session_state["messages"]  = []
             st.session_state["chain"]     = None
             st.session_state["retriever"] = None
@@ -86,7 +97,10 @@ if "repo_name" not in st.session_state:
 # ── Build chain lazily (only once per session) ─────────────
 if st.session_state.get("chain") is None:
     with st.spinner("Connecting to Pinecone..."):
-        vs = load_vectorstore(st.session_state["repo_name"])
+        if "user_id" not in st.session_state:
+            st.error("Missing user ID. Please load a repo again.")
+            st.stop()
+        vs = load_vectorstore(st.session_state["repo_name"], st.session_state["user_id"])
         chain, retriever = build_rag_chain(vs)
         st.session_state["chain"]     = chain
         st.session_state["retriever"] = retriever

@@ -26,7 +26,8 @@ def create_index_if_not_exists(pc: Pinecone):
     else:
         print(f"Index '{PINECONE_INDEX}' already exists.")
 
-def ingest_to_pinecone(chunks, repo_name: str) -> PineconeVectorStore:
+def ingest_to_pinecone(chunks, repo_name: str, user_id: str) -> PineconeVectorStore:
+    namespace = f"{user_id[:8]}_{repo_name}"
     pc = get_pinecone_client()
     embeddings = get_embeddings()
 
@@ -37,16 +38,17 @@ def ingest_to_pinecone(chunks, repo_name: str) -> PineconeVectorStore:
         documents = chunks,
         embedding = embeddings,
         index_name = PINECONE_INDEX,
-        namespace = repo_name,
+        namespace = namespace,
     )
 
     print("Upsert complete!")
     return vectorstore
 
-def load_vectorstore(repo_name: str)->PineconeVectorStore:
+def load_vectorstore(repo_name: str, user_id: str)->PineconeVectorStore:
+    namespace = f"{user_id[:8]}_{repo_name}"
     return PineconeVectorStore(
         index_name      = PINECONE_INDEX,
         embedding       = get_embeddings(),
-        namespace       = repo_name,
+        namespace       = namespace,
         pinecone_api_key = PINECONE_API_KEY
     )

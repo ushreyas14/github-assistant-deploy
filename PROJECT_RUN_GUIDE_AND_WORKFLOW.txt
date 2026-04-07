@@ -1,0 +1,467 @@
+GITHUB-AGENT: RUN COMMANDS + DETAILED CHANGE EXPLANATION + FILE WORKFLOW
+Date: 2026-04-07
+
+====================================================================
+1) EXACT COMMANDS TO RUN THE PROJECT (WINDOWS POWERSHELL)
+====================================================================
+
+A) One-time setup
+
+1. Open terminal in project root:
+   cd C:\Users\ushre\Desktop\github-agent
+
+2. Create virtual env (if not already created):
+   python -m venv venv
+
+3. Activate virtual env:
+   .\venv\Scripts\Activate.ps1
+
+4. Install dependencies:
+   pip install -r requirements.txt
+
+5. If backend server command fails with "No module named uvicorn", install uvicorn:
+   pip install "uvicorn[standard]"
+
+6. Ensure .env has required keys:
+   GROQ_API_KEY=...
+   PINECONE_API_KEY=...
+   PINECONE_INDEX_NAME=github-rag
+   SUPABASE_URL=...
+   SUPABASE_ANON_KEY=...
+
+
+B) Run Streamlit UI (frontend app)
+
+Command:
+   streamlit run app.py
+
+Expected:
+- Browser opens Streamlit app.
+- You can input User ID + GitHub URL.
+- Ingest/Load and ask questions.
+
+
+C) Run FastAPI backend
+
+Command:
+   python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
+
+Health check:
+   http://127.0.0.1:8000/health
+
+Swagger docs:
+   http://127.0.0.1:8000/docs
+
+
+D) Run old script pipeline (non-API test path)
+
+Command:
+   python main.py
+
+Notes:
+- This is a script-style flow for quick local testing.
+- It clones/indexes then asks one sample question.
+
+
+E) Run performance script
+
+Command:
+   python measure.py
+
+Purpose:
+- Measures clone, chunk, ingest, and query times.
+
+
+====================================================================
+2) WHAT CHANGES WERE MADE, WHY ADDED, AND WHY THIS DESIGN
+====================================================================
+
+Important context:
+This section documents the currently implemented change set visible in git diff.
+It focuses on the "per-user vector clusters tracking" design where each user
+is isolated by both database row ownership (Supabase RLS) and Pinecone namespace.
+
+
+A) app.py (Streamlit) changes
+
+What changed:
+- Added User ID input in sidebar.
+- Added validation requiring user_id for both Ingest and Load actions.
+- Updated ingest call from ingest_to_pinecone(chunks, name) to ingest_to_pinecone(chunks, name, user_id).
+- Stored user_id in session_state.
+- Updated vectorstore load call from load_vectorstore(repo_name) to load_vectorstore(repo_name, user_id).
+- Added guard error if user_id missing before chain initialization.
+
+Why:
+- Before: repo namespace was not guaranteed user-scoped in this UI path.
+- After: every ingest/load/query path carries user context, preventing cross-user collisions.
+
+Theory/concept behind it:
+- Multi-tenant vector DB systems must include tenant key in retrieval path, not just write path.
+- If tenant key is only used at ingestion, queries can accidentally hit wrong namespace.
+- This change enforces tenant identity at both write and read operations.
+
+
+B) vectorstore/pinecone_store.py changes
+
+What changed:
+- ingest_to_pinecone now requires user_id and computes namespace = user_id[:8] + "_" + repo_name.
+- load_vectorstore now requires user_id and uses same namespace logic.
+
+Why:
+- Namespace is the hard partition in Pinecone. Per-user namespace guarantees retrieval isolation.
+
+Theory/concept behind it:
+- Pinecone namespace is similar to a logical shard/partition key.
+- Deterministic namespace construction is critical. If write and read formulas differ, data becomes invisible.
+
+
+C) backend/db/supabase_client.py changes
+
+What changed:
+- get_client(access_token=None) now supports binding a user JWT to PostgREST.
+- Added get_authenticated_user(access_token).
+- save_repo now accepts access_token and uses upsert with on_conflict="user_id,repo_name".
+- get_user_repos and delete_repo now accept access_token.
+- get_user_repos sorts by created_at descending.
+
+Why:
+- Supabase RLS policy uses auth.uid(). That only works when request includes user JWT.
+- Passing token ensures SQL security policy is enforced per authenticated user.
+- Upsert avoids duplicate records for same (user_id, repo_name).
+
+Theory/concept behind it:
+- RLS is the database-enforced tenancy boundary.
+- App-level checks can be bypassed by bugs; DB policy is stronger and centralized.
+- User JWT propagation is mandatory for policy evaluation context.
+
+
+D) backend/routers/deps.py (new)
+
+What changed:
+- Added AuthContext dataclass with user_id and access_token.
+- Added get_auth_context() dependency:
+  - validates Authorization header format: Bearer <token>
+  - validates token via Supabase auth.get_user
+  - returns user identity + token for downstream routes
+
+Why:
+- Removes duplicate auth parsing across routes.
+- Standardizes route-level authentication and context extraction.
+
+Theory/concept behind it:
+- Dependency injection in FastAPI centralizes cross-cutting concerns like auth.
+- This improves consistency, testability, and reduces auth drift between endpoints.
+
+
+E) backend/routers/ingest.py changes
+
+What changed:
+- Endpoint now requires authenticated context via Depends(get_auth_context).
+- Uses auth.user_id (not body field) for ingest_to_pinecone.
+- Calls save_repo(...) after successful Pinecone upsert.
+- Returns namespace and chunk count.
+- Added try/except with HTTP 500 mapping.
+
+Why:
+- Prevents user impersonation by body payload user_id.
+- Persists repo metadata in Supabase so UI/API can list indexed clusters.
+
+Theory/concept behind it:
+- User identity should come from signed token claims, never request body.
+- Metadata registry enables management lifecycle (list/delete/status) independent of vector internals.
+
+
+F) backend/routers/query.py (new)
+
+What changed:
+- Added authenticated query endpoint.
+- Calls load_vectorstore(req.repo_name, auth.user_id).
+- Builds chain with configurable top_k.
+- Returns answer plus source previews.
+
+Why:
+- Ensures retrieval always happens in namespace tied to logged-in user.
+
+Theory/concept behind it:
+- Query-time tenant enforcement is mandatory in multi-tenant RAG.
+- Without this, retrieval leakage is possible even with safe ingest.
+
+
+G) backend/routers/repos.py (new)
+
+What changed:
+- GET /api/repos/ lists user repos using get_user_repos(auth.user_id, token).
+- DELETE /api/repos/{repo_name} deletes user metadata row.
+
+Why:
+- Adds API-level "cluster management" for each user.
+
+Theory/concept behind it:
+- RAG systems need lifecycle APIs, not just ingest/query.
+- Metadata table acts as control plane for namespaces.
+
+
+H) backend/schemas/models.py changes
+
+What changed:
+- Removed user_id from IngestRequest and QueryRequest.
+- Added validation for top_k (1..20) using Field constraints.
+
+Why:
+- user_id must not be client-provided in payload.
+- Input constraints reduce misuse and unsafe retrieval sizes.
+
+Theory/concept behind it:
+- Security-by-contract: schema should not expose identity fields that the server derives from auth.
+- Validation is part of API hardening.
+
+
+I) backend/routers/auth.py changes
+
+What changed:
+- Added error handling with HTTPException.
+- Fixed typo route from /logut to /logout.
+
+Why:
+- Better error reporting.
+- Correct endpoint naming for consistency/usability.
+
+
+J) backend/main.py changes
+
+What changed:
+- Registered ingest, query, repos routers in addition to auth.
+
+Why:
+- Exposes full backend API surface:
+  - auth
+  - ingest
+  - query
+  - cluster listing/deletion
+
+
+K) supabase/user_repos_migration.sql (new)
+
+What changed:
+- Created user_repos table with:
+  - FK user_id -> auth.users(id)
+  - unique (user_id, repo_name)
+  - unique namespace
+  - constraints and indexes
+  - updated_at trigger
+  - RLS enabled
+  - select/insert/delete/update policies constrained by auth.uid() = user_id
+
+Why:
+- This is core metadata store for per-user namespaces.
+- RLS prevents user A from seeing/editing user B metadata.
+
+Theory/concept behind it:
+- Defense in depth:
+  1) API auth check
+  2) DB RLS check
+  3) Pinecone namespace isolation
+- Together these produce robust tenant isolation.
+
+
+====================================================================
+3) COMPLETE WORKFLOW: HOW THE SYSTEM WORKS END-TO-END
+====================================================================
+
+0) Visual workflow map (file-level)
+
+User (UI/API client)
+  |
+  +--> Streamlit UI: app.py
+  |      |
+  |      +--> Ingestion pipeline:
+  |      |      ingestion/cloner.py
+  |      |         -> ingestion/loader.py
+  |      |         -> ingestion/chunker.py
+  |      |         -> vectorstore/pinecone_store.py (ingest_to_pinecone)
+  |      |
+  |      +--> Query pipeline:
+  |             vectorstore/pinecone_store.py (load_vectorstore)
+  |                -> chain/rag_chain.py
+  |                -> chain/embeddings.py
+  |
+  +--> FastAPI app: backend/main.py
+       |
+       +--> backend/routers/auth.py
+       |      -> backend/schemas/models.py
+       |      -> backend/db/supabase_client.py
+       |
+       +--> backend/routers/deps.py
+       |      -> backend/db/supabase_client.py (get_authenticated_user)
+       |
+       +--> backend/routers/ingest.py
+       |      -> backend/schemas/models.py
+       |      -> backend/routers/deps.py
+       |      -> ingestion/cloner.py
+       |      -> ingestion/loader.py
+       |      -> ingestion/chunker.py
+       |      -> vectorstore/pinecone_store.py (ingest)
+       |      -> backend/db/supabase_client.py (save_repo)
+       |
+       +--> backend/routers/query.py
+       |      -> backend/schemas/models.py
+       |      -> backend/routers/deps.py
+       |      -> vectorstore/pinecone_store.py (load)
+       |      -> chain/rag_chain.py
+       |
+       +--> backend/routers/repos.py
+            -> backend/routers/deps.py
+            -> backend/db/supabase_client.py (get_user_repos/delete_repo)
+
+Data + auth boundaries
+  - Vector data isolation: Pinecone namespace = <user_id_prefix>_<repo_name>
+  - Metadata isolation: Supabase table public.user_repos with RLS
+  - Auth identity source: Supabase JWT (auth.uid())
+
+A) Ingest flow
+
+1) Client sends repo_url to ingest endpoint (or Streamlit action).
+2) Auth token identifies current user.
+3) ingestion/cloner.py clones/pulls target repository.
+4) ingestion/loader.py reads allowed file types into LangChain Documents.
+5) ingestion/chunker.py splits files into semantic chunks.
+6) vectorstore/pinecone_store.py embeds + upserts chunks into namespace:
+   <user_id_prefix>_<repo_name>
+7) backend/db/supabase_client.py save_repo upserts metadata row in user_repos.
+8) Response returns status, repo_name, namespace, chunks.
+
+
+B) Query flow
+
+1) Client sends question + repo_name + optional top_k to /api/query/.
+2) Auth dependency resolves user_id from JWT.
+3) load_vectorstore(repo_name, user_id) binds retriever to user namespace.
+4) chain/rag_chain.py retrieves top-k chunks.
+5) Prompt injects context and asks Groq model to answer using only context.
+6) API returns answer + source previews.
+
+
+C) Repo management flow
+
+1) GET /api/repos/ lists rows from user_repos filtered by current auth.uid.
+2) DELETE /api/repos/{repo_name} removes user's metadata row.
+3) RLS ensures only owner can list/delete own rows.
+
+Note:
+- Current delete route removes metadata only. If full physical delete from Pinecone namespace
+  is needed, add namespace deletion in Pinecone + keep DB and vector store in sync.
+
+
+====================================================================
+4) FILE-BY-FILE RELEVANCE MAP (CORE PROJECT FILES)
+====================================================================
+
+Top-level
+- app.py
+  Streamlit UI. Collects user input, performs ingest/load, runs chat.
+- main.py
+  Script mode pipeline for local quick run (clone -> chunk -> ingest -> sample query).
+- measure.py
+  Timing benchmark script for ingestion/query path.
+- config.py
+  Central configuration: API keys, model names, chunk config, file filters, Supabase keys.
+- requirements.txt
+  Python dependencies.
+- runtime.txt
+  Runtime version hint (python-3.12).
+- README.md
+  Setup and high-level project description.
+
+Backend API
+- backend/main.py
+  FastAPI app bootstrap and router registration.
+- backend/routers/auth.py
+  Signup/login/logout routes.
+- backend/routers/deps.py
+  Auth dependency for extracting/validating Bearer JWT and building AuthContext.
+- backend/routers/ingest.py
+  Authenticated ingestion endpoint + metadata persistence.
+- backend/routers/query.py
+  Authenticated RAG query endpoint.
+- backend/routers/repos.py
+  Authenticated list/delete repo metadata endpoints.
+- backend/db/supabase_client.py
+  Supabase auth + table operations with JWT-bound client for RLS.
+- backend/schemas/models.py
+  Pydantic request models and validation constraints.
+
+Ingestion pipeline
+- ingestion/cloner.py
+  Clone or pull repository to local repos/.
+- ingestion/loader.py
+  Load repository files into Documents with metadata.
+- ingestion/chunker.py
+  Split documents into chunked Documents; language-aware where possible.
+
+RAG and Vector layers
+- chain/embeddings.py
+  SentenceTransformer embedding wrapper and lazy model loading.
+- chain/rag_chain.py
+  Retriever + prompt + Groq LLM chain composition.
+- vectorstore/pinecone_store.py
+  Pinecone client/index management, ingestion upsert, and namespace-scoped loading.
+
+Supabase migration/config
+- supabase/user_repos_migration.sql
+  SQL schema + RLS policy for user_repos metadata control plane.
+- supabase/.temp/*
+  Supabase CLI-generated temporary metadata files.
+
+Data/workspace folders
+- repos/
+  Local cloned repositories to index.
+- ui/repos/splitwise-plus/
+  Additional sample/project assets.
+
+
+====================================================================
+5) ARCHITECTURAL CONCEPT SUMMARY
+====================================================================
+
+Core pattern used:
+- Data plane (vectors): Pinecone namespace isolation
+- Control plane (metadata): Supabase user_repos table with RLS
+- Identity plane (auth): Supabase JWT -> auth.uid() at database layer
+
+Why this is strong:
+- Prevents cross-tenant reads in vector retrieval path.
+- Prevents cross-tenant metadata access in SQL path.
+- Keeps system observable and manageable via metadata APIs.
+
+Potential next hardening:
+- Add Pinecone namespace delete during repo delete endpoint.
+- Add background jobs for large ingests.
+- Add structured status lifecycle (indexing, ready, failed, deleted).
+- Add tests for auth leakage and namespace mismatch.
+
+
+====================================================================
+6) QUICK API REFERENCE
+====================================================================
+
+Auth
+- POST /api/auth/signup
+- POST /api/auth/login
+- POST /api/auth/logout
+
+Ingest
+- POST /api/ingest
+
+Query
+- POST /api/query/
+
+Repos
+- GET /api/repos/
+- DELETE /api/repos/{repo_name}
+
+Health
+- GET /health
+
+
+END OF DOCUMENT

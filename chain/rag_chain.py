@@ -26,11 +26,13 @@ def format_docs(docs) -> str:
         
     return "\n\n".join(parts)
 
-def build_rag_chain(vectorstore: PineconeVectorStore):
+def build_rag_chain(vectorstore: PineconeVectorStore, top_k: int | None = None):
+
+    k = top_k or TOP_K
 
     retriever = vectorstore.as_retriever(
         search_type="similarity",
-        search_kwargs={"k": TOP_K}  
+        search_kwargs={"k": k}
     )
 
     llm = ChatGroq(

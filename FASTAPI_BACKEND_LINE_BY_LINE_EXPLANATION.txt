@@ -1,0 +1,841 @@
+FASTAPI BACKEND: COMPLETE LINE-BY-LINE EXPLANATION
+Date: 2026-04-07
+
+This document explains each backend line in detail for the FastAPI portion of the project.
+Scope covered:
+- backend/main.py
+- backend/db/supabase_client.py
+- backend/routers/auth.py
+- backend/routers/deps.py
+- backend/routers/ingest.py
+- backend/routers/query.py
+- backend/routers/repos.py
+- backend/schemas/models.py
+- backend/routers/__init__.py
+- backend/schemas/__init__.py
+
+====================================================================
+FILE: backend/main.py
+====================================================================
+1: from fastapi import FastAPI
+   Imports the FastAPI application class used to instantiate the API server.
+
+2: from backend.routers.auth import router as auth_router
+   Imports auth routes (signup/login/logout) and aliases them as auth_router.
+
+3: from backend.routers.ingest import router as ingest_router
+   Imports ingestion routes and aliases as ingest_router.
+
+4: from backend.routers.query import router as query_router
+   Imports query routes for asking questions over indexed repos.
+
+5: from backend.routers.repos import router as repos_router
+   Imports repo management routes (list/delete tracked repos).
+
+6: (blank)
+   Visual separator.
+
+7: app = FastAPI()
+   Creates the FastAPI app instance. All routes are mounted on this object.
+
+8: (blank)
+   Visual separator.
+
+9: app.include_router(auth_router, prefix="/api/auth")
+   Mounts auth router under /api/auth.
+
+10: app.include_router(ingest_router, prefix="/api")
+    Mounts ingest endpoint(s) under /api.
+
+11: app.include_router(query_router, prefix="/api/query")
+    Mounts query endpoint(s) under /api/query.
+
+12: app.include_router(repos_router, prefix="/api/repos")
+    Mounts repo management endpoints under /api/repos.
+
+13-14: (blank)
+       Visual spacing before health route.
+
+15: @app.get('/health')
+    Registers a GET health-check endpoint.
+
+16: def gethealth():
+    Defines the health route handler.
+
+17:     return {"status": "okay"}
+    Returns a simple JSON indicating service is alive.
+
+18-20: (blank)
+       File ending whitespace.
+
+
+====================================================================
+FILE: backend/db/supabase_client.py
+====================================================================
+1: from supabase import create_client, Client
+   Imports Supabase client constructor and Client type hint.
+
+2: from config import SUPABASE_URL, SUPABASE_ANON_KEY
+   Imports Supabase project URL and anon API key from environment-backed config.
+
+3: (blank)
+   Separator.
+
+4: def get_client(access_token: str | None = None) -> Client:
+   Factory function that returns a Supabase client; optionally binds user JWT.
+
+5:     client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+   Builds Supabase client using project credentials.
+
+6:     if access_token:
+   Checks whether a user JWT is provided.
+
+7:         # Attach the user's JWT so Postgres RLS can evaluate auth.uid().
+   Comment explaining why JWT attachment is necessary (RLS evaluation context).
+
+8:         client.postgrest.auth(access_token)
+   Attaches JWT to PostgREST requests so DB policies can identify user.
+
+9:     return client
+   Returns configured client.
+
+10: (blank)
+    Separator.
+
+11: def get_authenticated_user(access_token: str):
+    Helper to resolve current user profile from provided access token.
+
+12:     return get_client().auth.get_user(access_token).user
+    Calls Supabase Auth API and returns user object.
+
+13: (blank)
+    Separator.
+
+14: def sign_up(email: str, password: str):
+    Wrapper to create a new user.
+
+15:     return get_client().auth.sign_up({
+    Calls Supabase sign_up with credentials payload.
+
+16:         "email": email,
+    Email field mapped from request.
+
+17:         "password": password
+    Password field mapped from request.
+
+18:     })
+    Closes payload and returns auth response.
+
+19: (blank)
+    Separator.
+
+20: def sign_in(email: str, password: str):
+    Wrapper to sign in existing user.
+
+21:     return get_client().auth.sign_in_with_password({
+    Calls Supabase password-based sign-in method.
+
+22:         "email": email,
+    Email entry.
+
+23:         "password": password
+    Password entry.
+
+24:     })
+    Completes call and returns session response.
+
+25: (blank)
+    Separator.
+
+26: def sign_out():
+    Wrapper to sign out active user session.
+
+27:     get_client().auth.sign_out()
+    Triggers sign-out through Supabase SDK.
+
+28: (blank)
+    Separator.
+
+29: def save_repo(
+    Begins helper that stores/upserts repo metadata in user_repos table.
+
+30:     user_id: str,
+    Function parameter: owner user id.
+
+31:     repo_name: str,
+    Function parameter: repository short name.
+
+32:     repo_url: str,
+    Function parameter: repository URL.
+
+33:     chunk_count: int,
+    Function parameter: number of chunks indexed.
+
+34:     access_token: str | None = None,
+    Optional JWT used for RLS-safe insert/upsert.
+
+35: ):
+    Function signature closes.
+
+36: (blank)
+    Spacer.
+
+37:     namespace = f"{user_id[:8]}_{repo_name}"
+    Computes deterministic Pinecone namespace combining user prefix + repo name.
+
+38:     get_client(access_token).table("user_repos").upsert(
+    Opens upsert operation on user_repos using JWT-bound client (if provided).
+
+39:         {
+    Starts payload dictionary.
+
+40:             "user_id": user_id,
+    Stores owner user id.
+
+41:             "repo_name": repo_name,
+    Stores repository name.
+
+42:             "repo_url": repo_url,
+    Stores original URL.
+
+43:             "namespace": namespace,
+    Stores derived vector namespace.
+
+44:             "chunk_count": chunk_count,
+    Stores chunk count metadata.
+
+45:             "status": "ready",
+    Sets processing status.
+
+46:         },
+    Ends payload object.
+
+47:         on_conflict="user_id,repo_name",
+    Defines conflict target; same user+repo updates existing row.
+
+48:     ).execute()
+    Executes upsert against DB.
+
+49: (blank)
+    Spacer.
+
+50:     return namespace
+    Returns namespace so caller can include in API response/logging.
+
+51: (blank)
+    Separator.
+
+52: def get_user_repos(user_id: str, access_token: str | None = None) -> list:
+    Fetches repos owned by specific user, optionally with RLS-authenticated context.
+
+53:     response = (
+    Starts fluent query chain.
+
+54:         get_client(access_token)
+    Uses JWT-bound client if token provided.
+
+55:         .table("user_repos")
+    Targets user_repos table.
+
+56:         .select("*")
+    Selects all columns.
+
+57:         .eq("user_id", user_id)
+    Filters by owner id.
+
+58:         .order("created_at", desc=True)
+    Sorts newest-first.
+
+59:         .execute()
+    Executes query.
+
+60:     )
+    Ends query chain assignment.
+
+61:     return response.data
+    Returns row list from Supabase response envelope.
+
+62: (blank)
+    Separator.
+
+63: def delete_repo(user_id: str, repo_name: str, access_token: str | None = None):
+    Deletes one metadata row matching user and repo name.
+
+64:     (
+    Starts chained delete query.
+
+65:         get_client(access_token)
+    Uses JWT-bound client for RLS.
+
+66:         .table("user_repos")
+    Targets metadata table.
+
+67:         .delete()
+    Declares delete operation.
+
+68:         .eq("user_id", user_id)
+    Restricts delete to user owner.
+
+69:         .eq("repo_name", repo_name)
+    Restricts delete to selected repo.
+
+70:         .execute()
+    Executes delete statement.
+
+71:     )
+    Ends statement.
+
+
+====================================================================
+FILE: backend/routers/auth.py
+====================================================================
+1: from fastapi import APIRouter, HTTPException
+   Imports router class and HTTPException for structured error responses.
+
+2: from backend.schemas.models import SignupRequest, LoginRequest
+   Imports request schemas for auth endpoints.
+
+3: from backend.db.supabase_client import sign_in, sign_up, sign_out
+   Imports auth service helpers from DB client module.
+
+4: (blank)
+   Spacer.
+
+5: router = APIRouter()
+   Creates router instance dedicated to auth endpoints.
+
+6: (blank)
+   Spacer.
+
+7: @router.post("/signup")
+   Registers POST /signup route within auth router.
+
+8: def signup(req: SignupRequest):
+   Handler expects JSON matching SignupRequest model.
+
+9:     try:
+   Starts exception handling block.
+
+10:         response = sign_up(req.email, req.password)
+    Calls Supabase signup helper with validated schema fields.
+
+11:         return {"message": "success", "user": response.user.email}
+    Returns success payload with registered email.
+
+12:     except Exception as e:
+    Catches SDK or validation failures.
+
+13:         raise HTTPException(status_code=400, detail=str(e))
+    Converts failure to HTTP 400 with readable detail.
+
+14: (blank)
+    Spacer.
+
+15: @router.post("/login")
+    Registers POST /login route.
+
+16: def login(req: LoginRequest):
+    Handler accepts login request body.
+
+17:     try:
+    Starts guarded execution.
+
+18:         response = sign_in(req.email, req.password)
+    Calls sign-in helper and obtains session.
+
+19:         return {"message": "success", "user": response.session.access_token}
+    Returns access token to client (stored under key user in current implementation).
+
+20:     except Exception as e:
+    Handles failures.
+
+21:         raise HTTPException(status_code=400, detail=str(e))
+    Sends 400 with error text.
+
+22: (blank)
+    Spacer.
+
+23: @router.post('/logout')
+    Registers POST /logout route.
+
+24: def logout():
+    Logout handler without request body.
+
+25:     try:
+    Protected execution block.
+
+26:         sign_out()
+    Calls sign-out helper.
+
+27:         return {"message": "logged out"}
+    Returns confirmation payload.
+
+28:     except Exception as e:
+    Handles failures.
+
+29:         raise HTTPException(status_code=400, detail=str(e))
+    Sends HTTP 400 for sign-out errors.
+
+
+====================================================================
+FILE: backend/routers/deps.py
+====================================================================
+1: from dataclasses import dataclass
+   Imports dataclass decorator to define lightweight typed context container.
+
+2: (blank)
+   Spacer.
+
+3: from fastapi import Header, HTTPException
+   Imports Header dependency extractor and HTTP error class.
+
+4: (blank)
+   Spacer.
+
+5: from backend.db.supabase_client import get_authenticated_user
+   Imports helper used to validate JWT and retrieve user identity.
+
+6-7: (blank)
+     Spacing.
+
+8: @dataclass
+   Marks AuthContext class as dataclass.
+
+9: class AuthContext:
+   Defines context object passed to protected endpoints.
+
+10:     user_id: str
+    Stores authenticated user id.
+
+11:     access_token: str
+    Stores raw bearer token for downstream RLS-bound DB calls.
+
+12-13: (blank)
+       Spacing.
+
+14: def get_auth_context(authorization: str = Header(default="")) -> AuthContext:
+    FastAPI dependency that reads Authorization header and returns verified AuthContext.
+
+15:     if not authorization:
+    Checks if header is missing/empty.
+
+16:         raise HTTPException(status_code=401, detail="Missing Authorization header")
+    Rejects unauthenticated request.
+
+17: (blank)
+    Spacer.
+
+18:     scheme, _, token = authorization.partition(" ")
+    Splits header into auth scheme and token (expects "Bearer <token>").
+
+19:     if scheme.lower() != "bearer" or not token:
+    Validates expected scheme and token presence.
+
+20:         raise HTTPException(status_code=401, detail="Invalid Authorization header")
+    Rejects malformed header.
+
+21: (blank)
+    Spacer.
+
+22:     try:
+    Attempts token validation against Supabase.
+
+23:         user = get_authenticated_user(token)
+    Resolves user from token.
+
+24:     except Exception:
+    Handles invalid/expired token or SDK errors.
+
+25:         raise HTTPException(status_code=401, detail="Invalid or expired token")
+    Returns unauthorized.
+
+26: (blank)
+    Spacer.
+
+27:     if user is None:
+    Defensive check in case SDK returns null user object.
+
+28:         raise HTTPException(status_code=401, detail="Invalid or expired token")
+    Returns unauthorized.
+
+29: (blank)
+    Spacer.
+
+30:     return AuthContext(user_id=str(user.id), access_token=token)
+    Returns normalized auth context for route dependency injection.
+
+
+====================================================================
+FILE: backend/routers/ingest.py
+====================================================================
+1: from fastapi import APIRouter, Depends, HTTPException
+   Imports router, dependency injector, and error class.
+
+2: from backend.schemas.models import IngestRequest
+   Imports request schema containing repo_url.
+
+3: from backend.routers.deps import AuthContext, get_auth_context
+   Imports auth context type and auth dependency.
+
+4: from backend.db.supabase_client import save_repo
+   Imports metadata persistence helper.
+
+5: from ingestion.cloner import clone_or_pull
+   Imports repo clone/pull function.
+
+6: from ingestion.loader import load_repo_documents
+   Imports file loading function.
+
+7: from ingestion.chunker import chunk_documents
+   Imports chunking function.
+
+8: from vectorstore.pinecone_store import ingest_to_pinecone
+   Imports Pinecone ingestion function.
+
+9: (blank)
+   Spacer.
+
+10: router = APIRouter()
+    Creates router for ingestion endpoints.
+
+11: (blank)
+    Spacer.
+
+12: @router.post('/ingest')
+    Registers POST /ingest endpoint (with router prefix from backend/main.py).
+
+13: def ingest(req: IngestRequest, auth: AuthContext = Depends(get_auth_context)):
+    Endpoint accepts request body and injected authenticated context.
+
+14:     try:
+    Wraps full ingest flow for error conversion.
+
+15:         path, name = clone_or_pull(req.repo_url)
+    Clones repo if not present, else pulls latest; returns local path and repo name.
+
+16:         docs = load_repo_documents(path)
+    Loads indexable files as LangChain documents.
+
+17:         chunks = chunk_documents(docs)
+    Splits docs into chunks for embedding.
+
+18: (blank)
+    Spacer.
+
+19:         ingest_to_pinecone(chunks, name, auth.user_id)
+    Embeds and upserts chunks into user-scoped namespace in Pinecone.
+
+20:         namespace = save_repo(
+    Begins metadata upsert into Supabase user_repos table.
+
+21:             user_id=auth.user_id,
+    Uses authenticated user id from token context.
+
+22:             repo_name=name,
+    Stores normalized repo name.
+
+23:             repo_url=req.repo_url,
+    Stores source URL.
+
+24:             chunk_count=len(chunks),
+    Stores number of chunks processed.
+
+25:             access_token=auth.access_token,
+    Passes user JWT so RLS policy can validate row ownership.
+
+26:         )
+    Ends save_repo call.
+
+27: (blank)
+    Spacer.
+
+28:         return {
+    Begins success JSON response.
+
+29:             "status": "success",
+    Marks successful ingest.
+
+30:             "repo_name": name,
+    Returns repo identifier.
+
+31:             "namespace": namespace,
+    Returns derived Pinecone namespace.
+
+32:             "chunks": len(chunks)
+    Returns total chunks ingested.
+
+33:         }
+    Ends response object.
+
+34:     except Exception as e:
+    Catches pipeline failures.
+
+35:         raise HTTPException(status_code=500, detail=str(e))
+    Converts to server error with details.
+
+
+====================================================================
+FILE: backend/routers/query.py
+====================================================================
+1: from fastapi import APIRouter, Depends, HTTPException
+   Imports FastAPI router/dependency/error types.
+
+2: (blank)
+   Spacer.
+
+3: from backend.routers.deps import AuthContext, get_auth_context
+   Imports auth dependency for identity extraction.
+
+4: from backend.schemas.models import QueryRequest
+   Imports query request schema (question, repo_name, top_k).
+
+5: from chain.rag_chain import build_rag_chain
+   Imports chain constructor.
+
+6: from vectorstore.pinecone_store import load_vectorstore
+   Imports vectorstore loader.
+
+7: (blank)
+   Spacer.
+
+8: router = APIRouter()
+   Creates query router.
+
+9-10: (blank)
+      Spacer.
+
+11: @router.post("/")
+    Registers POST root of query router (effective path /api/query/).
+
+12: def query_repo(req: QueryRequest, auth: AuthContext = Depends(get_auth_context)):
+    Query handler with validated body and authenticated context.
+
+13:     try:
+    Starts guarded logic.
+
+14:         vectorstore = load_vectorstore(req.repo_name, auth.user_id)
+    Loads Pinecone vector store using user-scoped namespace.
+
+15:         chain, retriever = build_rag_chain(vectorstore, top_k=req.top_k)
+    Builds retrieval + generation chain with caller-provided top_k.
+
+16: (blank)
+    Spacer.
+
+17:         answer = chain.invoke(req.question)
+    Runs RAG chain to generate answer.
+
+18:         sources = retriever.invoke(req.question)
+    Retrieves source chunks separately for transparent citation payload.
+
+19: (blank)
+    Spacer.
+
+20:         return {
+    Starts response object.
+
+21:             "repo_name": req.repo_name,
+    Echoes target repo.
+
+22:             "answer": answer,
+    Includes generated answer.
+
+23:             "sources": [
+    Begins source list construction.
+
+24:                 {
+    Starts one source object.
+
+25:                     "source": doc.metadata.get("source", "unknown"),
+    Adds source file path from metadata.
+
+26:                     "chunk_preview": doc.page_content[:240],
+    Adds preview snippet from document chunk.
+
+27:                 }
+    Ends one source object.
+
+28:                 for doc in sources
+    List-comprehension over retrieved docs.
+
+29:             ],
+    Ends source array.
+
+30:         }
+    Ends response object.
+
+31:     except Exception as e:
+    Catches runtime failures.
+
+32:         raise HTTPException(status_code=500, detail=str(e))
+    Returns 500 error.
+
+
+====================================================================
+FILE: backend/routers/repos.py
+====================================================================
+1: from fastapi import APIRouter, Depends, HTTPException
+   Imports API router + dependency + error tools.
+
+2: (blank)
+   Spacer.
+
+3: from backend.db.supabase_client import delete_repo, get_user_repos
+   Imports DB helper functions for listing and deleting metadata rows.
+
+4: from backend.routers.deps import AuthContext, get_auth_context
+   Imports authentication dependency.
+
+5: (blank)
+   Spacer.
+
+6: router = APIRouter()
+   Creates router for repo management endpoints.
+
+7-8: (blank)
+      Spacer.
+
+9: @router.get("/")
+   Registers GET / (effective path /api/repos/).
+
+10: def list_repos(auth: AuthContext = Depends(get_auth_context)):
+    Handler receives only injected auth context.
+
+11:     try:
+    Starts guarded block.
+
+12:         repos = get_user_repos(auth.user_id, access_token=auth.access_token)
+    Fetches rows for authenticated user only (plus JWT for RLS context).
+
+13:         return {"repos": repos}
+    Returns rows.
+
+14:     except Exception as e:
+    Handles errors.
+
+15:         raise HTTPException(status_code=500, detail=str(e))
+    Returns server error.
+
+16-17: (blank)
+       Spacer.
+
+18: @router.delete("/{repo_name}")
+    Registers DELETE endpoint with path parameter.
+
+19: def remove_repo(repo_name: str, auth: AuthContext = Depends(get_auth_context)):
+    Delete handler receives repo_name and auth context.
+
+20:     try:
+    Starts guarded block.
+
+21:         delete_repo(auth.user_id, repo_name, access_token=auth.access_token)
+    Deletes metadata row for this user+repo pair.
+
+22:         return {"status": "deleted", "repo_name": repo_name}
+    Returns confirmation payload.
+
+23:     except Exception as e:
+    Handles errors.
+
+24:         raise HTTPException(status_code=500, detail=str(e))
+    Returns server error.
+
+
+====================================================================
+FILE: backend/schemas/models.py
+====================================================================
+1: from pydantic import BaseModel, Field
+   Imports Pydantic model base and Field validator helper.
+
+2: from typing import Optional
+   Imports Optional type for nullable/optional fields.
+
+3: (blank)
+   Spacer.
+
+4: class IngestRequest(BaseModel):
+   Defines request body schema for ingest endpoint.
+
+5:     repo_url: str
+   Required GitHub repository URL string.
+
+6: (blank)
+   Spacer.
+
+7: class QueryRequest(BaseModel):
+   Defines schema for query endpoint.
+
+8:     question: str
+   Required natural-language question.
+
+9:     repo_name: str
+   Required repository name to target namespace.
+
+10:     top_k: Optional[int] = Field(default=8, ge=1, le=20)
+    Optional retrieval depth; default 8, constrained between 1 and 20.
+
+11: (blank)
+    Spacer.
+
+12: class SignupRequest(BaseModel):
+    Defines signup payload.
+
+13:     email: str
+    Required email.
+
+14:     password: str
+    Required password.
+
+15: (blank)
+    Spacer.
+
+16: class LoginRequest(BaseModel):
+    Defines login payload.
+
+17:     email: str
+    Required email.
+
+18:     password: str
+    Required password.
+
+
+====================================================================
+FILE: backend/routers/__init__.py
+====================================================================
+This file is currently empty.
+Purpose:
+- Marks backend/routers as a Python package.
+- Enables import paths like backend.routers.auth.
+
+
+====================================================================
+FILE: backend/schemas/__init__.py
+====================================================================
+This file is currently empty.
+Purpose:
+- Marks backend/schemas as a Python package.
+- Enables import paths like backend.schemas.models.
+
+
+====================================================================
+FASTAPI BACKEND CONTROL FLOW SUMMARY
+====================================================================
+
+Request lifecycle (protected routes):
+1) Client sends HTTP request with Authorization: Bearer <token>.
+2) FastAPI resolves Depends(get_auth_context).
+3) Token is validated via Supabase Auth.
+4) Route executes using AuthContext(user_id, access_token).
+5) DB helper receives access_token to enforce RLS in PostgREST calls.
+6) Response is returned as JSON or mapped to HTTPException.
+
+Ingest route chain:
+- clone_or_pull -> load_repo_documents -> chunk_documents -> ingest_to_pinecone -> save_repo
+
+Query route chain:
+- load_vectorstore(user-scoped namespace) -> build_rag_chain -> answer + source chunks
+
+Repos route chain:
+- list user rows in user_repos OR delete one user-owned row
+
+END OF DOCUMENT
