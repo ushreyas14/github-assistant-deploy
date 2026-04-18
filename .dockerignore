@@ -1,0 +1,33 @@
+# Frontend - not needed in backend Docker image
+frontend/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Local environment files
+.env
+.env.local
+
+# Cloned repos (ephemeral, created at runtime)
+repos/
+
+# Git
+.git/
+
+# Streamlit
+.streamlit/
+
+# Dev tools
+.devcontainer/
+
+# Docs / test scripts
+main.py
+measure.py
+results.txt
+*.txt
+!requirements.txt

@@ -1,4 +1,14 @@
+---
+title: GitHub Assistant API
+emoji: 🤖
+colorFrom: indigo
+colorTo: blue
+sdk: docker
+pinned: false
+---
+
 # GitHub RAG Agent
+
 
 A Retrieval-Augmented Generation (RAG) agent that indexes GitHub repositories and lets you ask natural language questions about the codebase. It clones repos, chunks source files with language-aware splitters, stores embeddings in Pinecone, and answers queries using Groq LLMs.
 
