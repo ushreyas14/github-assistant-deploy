@@ -1,12 +1,15 @@
+import logging
 from fastapi import APIRouter, HTTPException
 from backend.schemas.models import SignupRequest, LoginRequest
 from backend.db.supabase_client import sign_in, sign_up, sign_out
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _friendly_auth_error(op: str, err: Exception) -> tuple[int, str]:
     raw = str(err).lower()
+    logger.error("[AUTH ERROR] op=%s raw=%s", op, str(err))
 
     if op == "signup":
         if "already" in raw and "register" in raw:
@@ -18,7 +21,7 @@ def _friendly_auth_error(op: str, err: Exception) -> tuple[int, str]:
             return 401, "Invalid email or password."
         if "email not confirmed" in raw:
             return 401, "Please confirm your email before signing in."
-        return 400, "Unable to sign in right now. Please try again."
+        return 400, f"Unable to sign in right now. Please try again. (debug: {str(err)[:200]})"
 
     return 400, "Authentication failed."
 
@@ -46,4 +49,4 @@ def logout():
         sign_out()
         return {"message": "logged out"}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
