@@ -1,5 +1,5 @@
 ---
-title: GitHub Assistant API
+title: GitHub Assistant
 emoji: 🤖
 colorFrom: indigo
 colorTo: blue
@@ -7,104 +7,108 @@ sdk: docker
 pinned: false
 ---
 
-# GitHub RAG Agent
+# 🤖 GitHub Assistant
 
+**Live Webpage:** [https://github-assistant-deploy-by4c.vercel.app/dashboard](https://github-assistant-deploy-by4c.vercel.app/dashboard)
 
-A Retrieval-Augmented Generation (RAG) agent that indexes GitHub repositories and lets you ask natural language questions about the codebase. It clones repos, chunks source files with language-aware splitters, stores embeddings in Pinecone, and answers queries using Groq LLMs.
+A full-stack web application featuring a Retrieval-Augmented Generation (RAG) agent that indexes GitHub repositories and allows you to ask natural language questions about the codebase. 
 
-## Features
+With a sleek dashboard interface, users can log in, submit a GitHub repository URL to be cloned and indexed, and then interact with an AI assistant to get context-aware explanations, code snippets, and answers about the repository's structure and logic.
 
-- **Repo Cloning** — Clone any public GitHub repo (or pull latest if already cloned)
-- **Smart File Loading** — Loads supported file types (`.py`, `.js`, `.ts`, `.md`, `.html`, `.yaml`, `.json`, `.sh`, `.txt`) while skipping noise directories (`.git`, `node_modules`, `__pycache__`, etc.)
-- **Language-Aware Chunking** — Uses LangChain's `RecursiveCharacterTextSplitter` with language-specific separators for Python, JavaScript, TypeScript, Markdown, and HTML
-- **Vector Storage** — Embeds chunks and upserts them into a Pinecone index for fast similarity search
-- **LLM Q&A** — Retrieves relevant chunks and generates answers via Groq
+## ✨ Features
 
-## Project Structure
+- **Aesthetic Dashboard UI** — Built with React + Vite, designed for a smooth and intuitive user experience.
+- **Secure Authentication** — User authentication and session management powered by Supabase.
+- **Automated Repo Ingestion** — Clones public repositories, filters out noise (like `.git`, `node_modules`), and extracts relevant source files.
+- **Language-Aware Chunking** — Uses LangChain's `RecursiveCharacterTextSplitter` with language-specific separators for Python, JavaScript, TypeScript, Markdown, HTML, etc.
+- **Vector Storage & Fast Retrieval** — Embeds code chunks using `sentence-transformers` and upserts them into a **Pinecone** index for high-speed similarity searches.
+- **Lightning-Fast LLM Q&A** — Retrieves relevant code chunks and generates precise, context-aware answers via **Groq** APIs.
+- **Markdown & Syntax Highlighting** — Chat responses are formatted with markdown and code syntax highlighting.
+
+## 🛠️ Tech Stack
+
+### Frontend
+- **Framework:** React 18, Vite
+- **Routing:** React Router DOM
+- **UI Components:** React Markdown, Highlight.js
+- **Deployment:** Vercel
+
+### Backend
+- **Framework:** FastAPI, Python
+- **Database / Auth:** Supabase
+- **AI / LLM Orchestration:** LangChain
+- **LLM Provider:** Groq
+- **Embeddings:** `sentence-transformers` (Hugging Face)
+- **Vector Database:** Pinecone
+- **Git Operations:** GitPython
+
+## 📂 Project Structure
 
 ```
-github-agent/
-├── main.py                 # Entry point
-├── config.py               # Supported extensions, ignored dirs, chunk settings
-├── ingestion/
-│   ├── cloner.py           # Git clone / pull logic
-│   ├── loader.py           # Walk repo and create LangChain Documents
-│   └── chunker.py          # Language-aware text splitting
-├── chain/
-│   └── embeddings.py       # Embedding + LLM chain (WIP)
-├── vectorstore/            # Pinecone vector store integration (WIP)
-├── ui/                     # Frontend / UI (WIP)
-├── repos/                  # Cloned repositories (git-ignored)
-└── .env                    # API keys (not committed)
+github-assistant/
+├── backend/                # FastAPI backend & Supabase integration
+│   ├── routers/            # API Endpoints (Auth, Ingestion, Chat)
+│   ├── schemas/            # Pydantic models
+├── chain/                  # LangChain retrieval & QA chains
+├── frontend/               # React + Vite web application
+├── ingestion/              # Repository cloning, loading, and chunking logic
+├── vectorstore/            # Pinecone integration and embedding utilities
+├── main.py                 # FastAPI application entry point
+├── config.py               # Ingestion & chunking configuration
+├── requirements.txt        # Python dependencies
+└── package.json            # (inside frontend/) React dependencies
 ```
 
-## Prerequisites
+## 🚀 Getting Started Locally
 
+### Prerequisites
 - Python 3.10+
-- A [Groq](https://console.groq.com/) API key
-- A [Pinecone](https://www.pinecone.io/) API key and index
+- Node.js (v18+)
+- [Groq](https://console.groq.com/) API key
+- [Pinecone](https://www.pinecone.io/) API key & index
+- [Supabase](https://supabase.com/) project URL & Anon Key
 
-## Setup
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/<your-username>/github-agent.git
-   cd github-agent
-   ```
-
-2. **Create and activate a virtual environment**
-   ```bash
-   python -m venv venv
-   # Windows
-   venv\Scripts\activate
-   # macOS / Linux
-   source venv/bin/activate
-   ```
-
-3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Configure environment variables**
-
-   Copy the example env file and fill in your keys:
-   ```bash
-   cp .env.example .env
-   ```
-   Then edit `.env`:
-   ```
-   GROQ_API_KEY=your_groq_api_key
-   PINECONE_API_KEY=your_pinecone_api_key
-   PINECONE_INDEX_NAME=github-rag
-   ```
-
-## Usage
+### 1. Backend Setup
 
 ```bash
-python main.py
+# Clone the repository
+git clone https://github.com/<your-username>/github-assistant.git
+cd github-assistant
+
+# Create and activate a virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows use: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
 ```
 
-By default this clones the [Flask](https://github.com/pallets/flask) repository, loads its source files, and chunks them. You can modify the repo URL in `main.py` to index any public GitHub repository.
+Create a `.env` file in the root directory:
+```ini
+GROQ_API_KEY=your_groq_api_key
+PINECONE_API_KEY=your_pinecone_api_key
+PINECONE_INDEX_NAME=github-rag
+SUPABASE_URL=your_supabase_url
+SUPABASE_KEY=your_supabase_anon_key
+```
 
-## Configuration
+Run the backend server:
+```bash
+uvicorn main:app --reload --port 8000
+```
 
-Edit [`config.py`](config.py) to customise:
+### 2. Frontend Setup
 
-| Setting | Default | Description |
-|---|---|---|
-| `SUPPORTED_EXTENSIONS` | `.py`, `.js`, `.ts`, `.md`, `.txt`, `.yaml`, `.yml`, `.json`, `.html`, `.sh` | File types to index |
-| `IGNORED_DIRS` | `.git`, `node_modules`, `__pycache__`, `.venv`, `dist`, `build` | Directories to skip |
-| `CHUNK_SIZE` | 1000 | Maximum characters per chunk |
-| `CHUNK_OVERLAP` | 150 | Overlap between consecutive chunks |
+```bash
+cd frontend
 
-## Tech Stack
+# Install dependencies
+npm install
 
-- [LangChain](https://python.langchain.com/) — Document loading, text splitting, and chain orchestration
-- [Pinecone](https://www.pinecone.io/) — Vector database for storing and querying embeddings
-- [Groq](https://groq.com/) — Fast LLM inference
-- [GitPython](https://gitpython.readthedocs.io/) — Git operations from Python
+# Start the development server
+npm run dev
+```
 
-## License
+## 📜 License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
