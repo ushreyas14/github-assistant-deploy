@@ -39,10 +39,9 @@ def load_repo_documents(repo_path: str) -> list[Document]:
             doc = Document(
                 page_content=full_content,
                 metadata={
-                    "source":    relative_path,
-                    "repo":      repo_name,
+                    "repo": repo_name,
+                    "file_path": relative_path,
                     "extension": filepath.suffix,
-                    "filename":  filename,
                 }
             )
             docs.append(doc)

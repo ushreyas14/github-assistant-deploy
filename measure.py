@@ -48,7 +48,7 @@ def measure():
     print("Setting up query chain...", flush=True)
     t6 = time.time()
     vs = load_vectorstore(name, user_id)
-    chain, retriever = build_rag_chain(vs)
+    chain, retriever = build_rag_chain(vs, chunks)
     question = 'How does Flask handle URL routing?'
 
     print("Sending Query...", flush=True)

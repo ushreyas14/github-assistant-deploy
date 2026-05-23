@@ -2,6 +2,8 @@ from tree_sitter_language_pack import get_parser
 from langchain_core.documents import Document
 from langchain_text_splitters import (RecursiveCharacterTextSplitter, Language)
 from config import (CHUNK_SIZE, CHUNK_OVERLAP)
+import ast
+import re
 
 LANGUAGE_MAP = {
     ".py": "python", 
@@ -9,6 +11,16 @@ LANGUAGE_MAP = {
     ".jsx": "javascript",
     ".ts": "typescript", 
     ".tsx": "typescript"
+}
+
+FALLBACK_LANGUAGE_BY_EXT = {
+    ".md": "markdown",
+    ".html": "html",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".json": "json",
+    ".sh": "shell",
+    ".txt": "text",
 }
 
 SPLITTER_LANGUAGE_MAP = {
@@ -35,6 +47,66 @@ CHUNK_NODE_TYPES = {
         "method_definition",
     }
 }
+
+
+def _dedupe_preserve_order(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in items:
+        if not item:
+            continue
+        if item in seen:
+            continue
+        seen.add(item)
+        out.append(item)
+    return out
+
+
+def extract_imports(language: str, code: str) -> list[str]:
+    """Extract a small, metadata-friendly list of imported module names."""
+
+    if not code:
+        return []
+
+    if language == "python":
+        try:
+            tree = ast.parse(code)
+        except SyntaxError:
+            return []
+
+        imports: list[str] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    imports.append((alias.name or "").split(".")[0])
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    imports.append(node.module.split(".")[0])
+
+        return _dedupe_preserve_order(imports)
+
+    if language in {"javascript", "typescript"}:
+        modules: list[str] = []
+        modules.extend(re.findall(r"\\bimport\\s+[^;]*?from\\s+['\"]([^'\"]+)['\"]", code))
+        modules.extend(re.findall(r"\\brequire\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)", code))
+
+        normalized: list[str] = []
+        for mod in modules:
+            if not mod:
+                continue
+            # Trim relative prefixes and split on path.
+            while mod.startswith("../"):
+                mod = mod[3:]
+            if mod.startswith("./"):
+                mod = mod[2:]
+            mod = mod.lstrip("/")
+            mod = mod.split("/")[0]
+            if mod:
+                normalized.append(mod)
+
+        return _dedupe_preserve_order(normalized)
+
+    return []
 
 def get_recursive_splitter(ext: str):
     
@@ -129,6 +201,16 @@ def treesitter_chunk_document(doc: Document):
     code = doc.page_content
     code_bytes = code.encode("utf-8")
 
+    file_path = doc.metadata.get("file_path") or doc.metadata.get("source")
+    base_metadata = {
+        "repo": doc.metadata.get("repo"),
+        "file_path": file_path,
+        "extension": ext,
+        "language": language,
+    }
+
+    file_imports = extract_imports(language, code)
+
     # tree-sitter python bindings differ by version/package:
     # some expect `bytes` (UTF-8), others accept `str`.
     try:
@@ -162,9 +244,12 @@ def treesitter_chunk_document(doc: Document):
             start_line, end_line = _node_start_end_lines(node)
 
             metadata = {
-                **doc.metadata,
-                "start_line": start_line,
-                "end_line": end_line,
+                **base_metadata,
+                "chunk_type": node_kind,
+                "symbol_name": symbol_name,
+                "start_line": start_line or 0,
+                "end_line": end_line or 0,
+                "imports": file_imports,
             }
 
             node_doc = Document(
@@ -191,9 +276,26 @@ def recursive_chunk_document(doc: Document):
 
     ext = doc.metadata.get("extension", "")
     splitter = get_recursive_splitter(ext)
-    chunks = splitter.split_documents([doc])
 
-    return chunks
+    language = LANGUAGE_MAP.get(ext) or FALLBACK_LANGUAGE_BY_EXT.get(ext) or "text"
+
+    code = doc.page_content
+    file_path = doc.metadata.get("file_path") or doc.metadata.get("source")
+
+    metadata = {
+        "repo": doc.metadata.get("repo"),
+        "file_path": file_path,
+        "extension": ext,
+        "language": language,
+        "chunk_type": "recursive",
+        "symbol_name": "",
+        "start_line": 0,
+        "end_line": 0,
+        "imports": extract_imports(language or "", code),
+    }
+
+    base_doc = Document(page_content=code, metadata=metadata)
+    return splitter.split_documents([base_doc])
 
 
 def chunk_documents(docs: list[Document]):

@@ -22,7 +22,7 @@ def query_repo(req: QueryRequest, auth: AuthContext = Depends(get_auth_context))
             "answer": answer,
             "sources": [
                 {
-                    "source": doc.metadata.get("source", "unknown"),
+                    "source": doc.metadata.get("file_path") or doc.metadata.get("source", "unknown"),
                     "chunk_preview": doc.page_content[:240],
                 }
                 for doc in sources

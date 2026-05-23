@@ -140,7 +140,7 @@ if prompt := st.chat_input(f"Ask about {st.session_state.get('repo_name', 'the r
     if sources:
         with st.expander(f"📎 {len(sources)} source chunks used"):
             for i, doc in enumerate(sources, 1):
-                src = doc.metadata.get("source", "unknown")
+                src = doc.metadata.get("file_path") or doc.metadata.get("source", "unknown")
                 ext = doc.metadata.get("extension", "").lstrip(".")
                 st.markdown(f"**[{i}] `{src}`**")
                 st.code(doc.page_content[:400] + "...", language=ext or "text")
