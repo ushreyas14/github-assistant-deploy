@@ -57,8 +57,64 @@ def extract_node_name(node, code_bytes):
     
     if not name_node:
         return "anonymous"
-    
-    return code_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8")
+
+    start_byte = _get_attr_or_call(name_node, "start_byte")
+    end_byte = _get_attr_or_call(name_node, "end_byte")
+    return code_bytes[start_byte:end_byte].decode("utf-8")
+
+
+def _get_attr_or_call(obj, attr: str, default=None):
+    if not hasattr(obj, attr):
+        return default
+    value = getattr(obj, attr)
+    return value() if callable(value) else value
+
+
+def _node_kind(node) -> str:
+    # tree-sitter node kind is exposed as `type` (property) in some bindings,
+    # and as `kind()` in others (e.g., tree_sitter_language_pack).
+    return (
+        _get_attr_or_call(node, "type")
+        or _get_attr_or_call(node, "kind")
+        or ""
+    )
+
+
+def _node_children(node):
+    children = _get_attr_or_call(node, "children")
+    if children is not None:
+        return children
+
+    child_count = _get_attr_or_call(node, "child_count")
+    child_fn = getattr(node, "child", None)
+    if child_count is None or not callable(child_fn):
+        return []
+
+    return [child_fn(i) for i in range(child_count)]
+
+
+def _pos_row(pos) -> int | None:
+    if pos is None:
+        return None
+    if isinstance(pos, (tuple, list)) and len(pos) >= 1:
+        return int(pos[0])
+    row = _get_attr_or_call(pos, "row")
+    return int(row) if row is not None else None
+
+
+def _node_start_end_lines(node) -> tuple[int | None, int | None]:
+    start = _get_attr_or_call(node, "start_point")
+    if start is None:
+        start = _get_attr_or_call(node, "start_position")
+    end = _get_attr_or_call(node, "end_point")
+    if end is None:
+        end = _get_attr_or_call(node, "end_position")
+
+    start_row = _pos_row(start)
+    end_row = _pos_row(end)
+    start_line = start_row + 1 if start_row is not None else None
+    end_line = end_row + 1 if end_row is not None else None
+    return start_line, end_line
 
 def treesitter_chunk_document(doc: Document):
 
@@ -72,9 +128,14 @@ def treesitter_chunk_document(doc: Document):
 
     code = doc.page_content
     code_bytes = code.encode("utf-8")
-    
-    tree = parser.parse(code_bytes)
-    root = tree.root_node
+
+    # tree-sitter python bindings differ by version/package:
+    # some expect `bytes` (UTF-8), others accept `str`.
+    try:
+        tree = parser.parse(code_bytes)
+    except TypeError:
+        tree = parser.parse(code)
+    root = _get_attr_or_call(tree, "root_node")
 
     target_types = CHUNK_NODE_TYPES[language]
 
@@ -85,28 +146,43 @@ def treesitter_chunk_document(doc: Document):
 
         node = stack.pop()
 
-        if node.type in target_types:
+        node_kind = _node_kind(node)
 
-            chunk_code = code_bytes[node.start_byte:node.end_byte].decode("utf-8")
+        if node_kind in target_types:
+
+            start_byte = _get_attr_or_call(node, "start_byte")
+            end_byte = _get_attr_or_call(node, "end_byte")
+            if start_byte is None or end_byte is None:
+                stack.extend(_node_children(node))
+                continue
+
+            chunk_code = code_bytes[start_byte:end_byte].decode("utf-8")
             symbol_name = extract_node_name(node,code_bytes)
+
+            start_line, end_line = _node_start_end_lines(node)
 
             metadata = {
                 **doc.metadata,
-                "language": language,
-                "chunk_type": node.type,
-                "symbol_name": symbol_name,
-                "start_line": node.start_point[0] + 1,
-                "end_line": node.end_point[0] + 1,
+                "start_line": start_line,
+                "end_line": end_line,
             }
 
-            chunks.append(
-                Document(
-                    page_content=chunk_code,
-                    metadata=metadata
-                )
+            node_doc = Document(
+                page_content=chunk_code,
+                metadata=metadata
             )
 
-        stack.extend(node.children)
+            # Pinecone enforces a 40KB metadata limit per vector.
+            # LangChain's Pinecone integration stores the document text inside metadata
+            # (default text_key), so very large AST nodes (big classes/functions) can blow
+            # past the limit. Cap/split oversized nodes here.
+            if len(chunk_code) > CHUNK_SIZE:
+                splitter = get_recursive_splitter(ext)
+                chunks.extend(splitter.split_documents([node_doc]))
+            else:
+                chunks.append(node_doc)
+
+        stack.extend(_node_children(node))
 
     return chunks
 
