@@ -8,10 +8,12 @@ try:
     GROQ_API_KEY     = st.secrets.get("GROQ_API_KEY")     or os.getenv("GROQ_API_KEY")
     PINECONE_API_KEY = st.secrets.get("PINECONE_API_KEY") or os.getenv("PINECONE_API_KEY")
     PINECONE_INDEX   = st.secrets.get("PINECONE_INDEX_NAME") or os.getenv("PINECONE_INDEX_NAME", "github-rag")
+    MONGODB_URI = st.secrets.get("MONGODB_URI") or os.getenv("MONGODB_URI")
 except:
     GROQ_API_KEY     = os.getenv("GROQ_API_KEY")
     PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
     PINECONE_INDEX   = os.getenv("PINECONE_INDEX_NAME", "github-rag")
+    MONGODB_URI = os.getenv("MONGODB_URI")
 
 # Rest of config stays the same
 GROQ_MODEL  = "llama-3.3-70b-versatile"

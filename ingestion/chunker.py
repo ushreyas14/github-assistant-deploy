@@ -257,15 +257,15 @@ def treesitter_chunk_document(doc: Document):
                 metadata=metadata
             )
 
-            # Pinecone enforces a 40KB metadata limit per vector.
-            # LangChain's Pinecone integration stores the document text inside metadata
-            # (default text_key), so very large AST nodes (big classes/functions) can blow
-            # past the limit. Cap/split oversized nodes here.
-            if len(chunk_code) > CHUNK_SIZE:
-                splitter = get_recursive_splitter(ext)
-                chunks.extend(splitter.split_documents([node_doc]))
-            else:
-                chunks.append(node_doc)
+            # # Pinecone enforces a 40KB metadata limit per vector.
+            # # LangChain's Pinecone integration stores the document text inside metadata
+            # # (default text_key), so very large AST nodes (big classes/functions) can blow
+            # # past the limit. Cap/split oversized nodes here.
+            # if len(chunk_code) > CHUNK_SIZE:
+            #     splitter = get_recursive_splitter(ext)
+            #     chunks.extend(splitter.split_documents([node_doc]))
+            # else:
+            chunks.append(node_doc)
 
         stack.extend(_node_children(node))
 
