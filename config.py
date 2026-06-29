@@ -5,13 +5,13 @@ load_dotenv()
 
 try:
     import streamlit as st
-    GROQ_API_KEY     = st.secrets.get("GROQ_API_KEY")     or os.getenv("GROQ_API_KEY")
-    PINECONE_API_KEY = st.secrets.get("PINECONE_API_KEY") or os.getenv("PINECONE_API_KEY")
-    PINECONE_INDEX   = st.secrets.get("PINECONE_INDEX_NAME") or os.getenv("PINECONE_INDEX_NAME", "github-rag")
+    GROQ_API_KEY     = (st.secrets.get("GROQ_API_KEY")     or os.getenv("GROQ_API_KEY")     or "").strip()
+    PINECONE_API_KEY = (st.secrets.get("PINECONE_API_KEY") or os.getenv("PINECONE_API_KEY") or "").strip()
+    PINECONE_INDEX   = (st.secrets.get("PINECONE_INDEX_NAME") or os.getenv("PINECONE_INDEX_NAME") or "github-rag").strip()
 except:
-    GROQ_API_KEY     = os.getenv("GROQ_API_KEY")
-    PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-    PINECONE_INDEX   = os.getenv("PINECONE_INDEX_NAME", "github-rag")
+    GROQ_API_KEY     = (os.getenv("GROQ_API_KEY")     or "").strip()
+    PINECONE_API_KEY = (os.getenv("PINECONE_API_KEY") or "").strip()
+    PINECONE_INDEX   = (os.getenv("PINECONE_INDEX_NAME") or "github-rag").strip()
 
 # Rest of config stays the same
 GROQ_MODEL  = "llama-3.3-70b-versatile"
@@ -32,5 +32,5 @@ IGNORED_DIRS = {
     #HELLO
 }
 
-SUPABASE_URL      = os.getenv("SUPABASE_URL")
-SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+SUPABASE_URL      = (os.getenv("SUPABASE_URL")      or "").strip()
+SUPABASE_ANON_KEY = (os.getenv("SUPABASE_ANON_KEY") or "").strip()
