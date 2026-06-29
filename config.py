@@ -3,6 +3,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Sanitize env vars at the OS level so third-party libs
+# (e.g. langchain_pinecone reads PINECONE_API_KEY directly)
+# also get clean values without trailing whitespace/newlines.
+for _key in ("GROQ_API_KEY", "PINECONE_API_KEY", "PINECONE_INDEX_NAME",
+             "SUPABASE_URL", "SUPABASE_ANON_KEY"):
+    _val = os.environ.get(_key)
+    if _val:
+        os.environ[_key] = _val.strip()
+
 try:
     import streamlit as st
     GROQ_API_KEY     = (st.secrets.get("GROQ_API_KEY")     or os.getenv("GROQ_API_KEY")     or "").strip()

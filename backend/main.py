@@ -25,13 +25,19 @@ app.include_router(repos_router, prefix="/api/repos")
 @app.get("/health")
 def health_check():
     url = os.getenv("SUPABASE_URL", "NOT_SET")
-    key = os.getenv("SUPABASE_ANON_KEY", "NOT_SET")
+    supa_key = os.getenv("SUPABASE_ANON_KEY", "NOT_SET")
+    pine_key = os.getenv("PINECONE_API_KEY", "NOT_SET")
+    groq_key = os.getenv("GROQ_API_KEY", "NOT_SET")
+    pine_idx = os.getenv("PINECONE_INDEX_NAME", "NOT_SET")
     return {
         "status": "ok",
-        "supabase_url": url,
-        "supabase_key_prefix": key[:20] + "..." if key != "NOT_SET" else "NOT_SET",
-        "url_has_trailing_space": url != url.strip(),
-        "url_starts_with_https": url.startswith("https://"),
+        "supabase_url": url.strip() if url else url,
+        "supabase_key_set": supa_key != "NOT_SET",
+        "pinecone_key_prefix": (pine_key[:10] + "...") if pine_key != "NOT_SET" else "NOT_SET",
+        "pinecone_key_has_newline": "\n" in pine_key,
+        "pinecone_key_has_trailing_space": pine_key != pine_key.strip(),
+        "pinecone_index": pine_idx.strip() if pine_idx else pine_idx,
+        "groq_key_set": groq_key != "NOT_SET",
     }
 
 

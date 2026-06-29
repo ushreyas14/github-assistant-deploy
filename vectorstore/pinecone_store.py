@@ -6,7 +6,7 @@ import time
 
 import vectorstore
 def get_pinecone_client()->Pinecone:
-    return Pinecone(api_key=PINECONE_API_KEY)
+    return Pinecone(api_key=PINECONE_API_KEY.strip() if PINECONE_API_KEY else PINECONE_API_KEY)
 
 def create_index_if_not_exists(pc: Pinecone):
     existing = [i.name for i in pc.list_indexes()]
@@ -50,5 +50,5 @@ def load_vectorstore(repo_name: str, user_id: str)->PineconeVectorStore:
         index_name      = PINECONE_INDEX,
         embedding       = get_embeddings(),
         namespace       = namespace,
-        pinecone_api_key = PINECONE_API_KEY
+        pinecone_api_key = PINECONE_API_KEY.strip() if PINECONE_API_KEY else PINECONE_API_KEY
     )
