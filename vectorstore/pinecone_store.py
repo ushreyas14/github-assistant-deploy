@@ -1,5 +1,6 @@
 from pinecone import Pinecone, ServerlessSpec
 from langchain_pinecone import PineconeVectorStore
+from langchain_core.documents import Document
 from chain.embeddings import get_embeddings
 from config import PINECONE_API_KEY, PINECONE_INDEX, EMBED_DIM
 import time
@@ -33,9 +34,34 @@ def ingest_to_pinecone(chunks, repo_name: str, user_id: str) -> PineconeVectorSt
 
     create_index_if_not_exists(pc)
 
-    print(f"Upserting {len(chunks)} chunks into namespace '{repo_name}'...")
+    # -----------------------------------------------------------
+    # Trim metadata for Pinecone (full metadata lives in MongoDB)
+    # -----------------------------------------------------------
+    MAX_TEXT_BYTES = 36_000  # stay well under Pinecone's 40KB limit
+
+    pinecone_chunks = []
+    for chunk in chunks:
+        trimmed_meta = {
+            "repo": chunk.metadata.get("repo", ""),
+            "file_path": chunk.metadata.get("file_path", ""),
+            "symbol_name": chunk.metadata.get("symbol_name", ""),
+            "chunk_type": chunk.metadata.get("chunk_type", ""),
+            "chunk_index": chunk.metadata.get("chunk_index", 0),
+        }
+
+        content = chunk.page_content
+        if len(content.encode("utf-8")) > MAX_TEXT_BYTES:
+            # Truncate to stay under the limit (Pinecone stores
+            # page_content inside metadata as the 'text' key)
+            content = content[:MAX_TEXT_BYTES]
+
+        pinecone_chunks.append(
+            Document(page_content=content, metadata=trimmed_meta)
+        )
+
+    print(f"Upserting {len(pinecone_chunks)} chunks into namespace '{namespace}'...")
     vectorstore = PineconeVectorStore.from_documents(
-        documents = chunks,
+        documents = pinecone_chunks,
         embedding = embeddings,
         index_name = PINECONE_INDEX,
         namespace = namespace,

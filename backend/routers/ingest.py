@@ -6,16 +6,21 @@ from ingestion.cloner import clone_or_pull
 from ingestion.loader import load_repo_documents
 from ingestion.chunker import chunk_documents
 from vectorstore.pinecone_store import ingest_to_pinecone
+from mongodb import store_chunks_metadata
 
 router = APIRouter()
 
 @router.post('/ingest')
-def ingest(req: IngestRequest, auth: AuthContext = Depends(get_auth_context)):
+async def ingest(req: IngestRequest, auth: AuthContext = Depends(get_auth_context)):
     try:
         path, name = clone_or_pull(req.repo_url)
         docs = load_repo_documents(path)
         chunks = chunk_documents(docs)
 
+        # Store full metadata in MongoDB (no size limits)
+        await store_chunks_metadata(chunks, name, auth.user_id)
+
+        # Store trimmed metadata + embeddings in Pinecone
         ingest_to_pinecone(chunks, name, auth.user_id)
         namespace = save_repo(
             user_id=auth.user_id,
@@ -33,3 +38,4 @@ def ingest(req: IngestRequest, auth: AuthContext = Depends(get_auth_context)):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
