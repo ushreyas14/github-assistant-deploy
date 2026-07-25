@@ -103,53 +103,49 @@ def format_docs(docs) -> str:
 def rerank_documents(
     query,
     docs,
-    top_n=5
+    top_n=8,
+    score_threshold: float = -5.0,
 ):
+    """Rerank docs with CrossEncoder. Falls back to original order if reranker
+    produces no results above score_threshold or raises an error."""
 
     if not docs:
         return []
 
-    pairs = [
-        (query, doc.page_content)
-        for doc in docs
-    ]
+    try:
+        pairs = [
+            (query, doc.page_content)
+            for doc in docs
+        ]
 
-    scores = reranker.predict(pairs)
+        scores = reranker.predict(pairs)
 
-    scored_docs = list(zip(docs, scores))
-
-    scored_docs.sort(
-        key=lambda x: x[1],
-        reverse=True
-    )
-
-    reranked_docs = []
-
-    print("\n========== RERANK RESULTS ==========")
-
-    for doc, score in scored_docs[:top_n]:
-
-        source = doc.metadata.get(
-            "file_path",
-            "unknown"
+        scored_docs = sorted(
+            zip(docs, scores),
+            key=lambda x: x[1],
+            reverse=True
         )
 
-        symbol = doc.metadata.get(
-            "symbol_name",
-            ""
-        )
+        print("\n========== RERANK RESULTS ==========")
+        reranked_docs = []
+        for doc, score in scored_docs[:top_n]:
+            source = doc.metadata.get("file_path", "unknown")
+            symbol = doc.metadata.get("symbol_name", "")
+            print(f"Score: {score:.4f} | {source} | {symbol}")
+            if score >= score_threshold:
+                reranked_docs.append(doc)
+        print("====================================\n")
 
-        print(
-            f"Score: {score:.4f} | "
-            f"{source} | "
-            f"{symbol}"
-        )
+        # Fallback: if threshold filtered everything, return top_n without filter
+        if not reranked_docs:
+            print("[rerank] All scores below threshold — returning top_n unfiltered")
+            reranked_docs = [doc for doc, _ in scored_docs[:top_n]]
 
-        reranked_docs.append(doc)
+        return reranked_docs
 
-    print("====================================\n")
-
-    return reranked_docs
+    except Exception as e:
+        print(f"[rerank] Reranker failed ({e}), falling back to retrieval order")
+        return docs[:top_n]
 
 
 # -----------------------------
@@ -197,27 +193,31 @@ def build_rag_chain(
     # -----------------------------
     # RETRIEVE + RERANK
     # -----------------------------
+    # Store last reranked docs so query.py can return them as sources
+    _last_reranked: list = []
+
     def retrieve_and_rerank(query: str):
+        nonlocal _last_reranked
 
         print(f"\nQuery: {query}")
 
         # Initial retrieval
         docs = retriever.invoke(query)
-
-        print(
-            f"Retrieved {len(docs)} docs "
-            f"before reranking"
-        )
+        print(f"Retrieved {len(docs)} docs before reranking")
 
         # Rerank
         reranked_docs = rerank_documents(
             query=query,
             docs=docs,
-            top_n=5
         )
+
+        _last_reranked = reranked_docs
 
         # Final formatting
         return format_docs(reranked_docs)
+
+    def get_last_reranked() -> list:
+        return _last_reranked
 
     # -----------------------------
     # LLM
@@ -256,4 +256,4 @@ def build_rag_chain(
         | StrOutputParser()
     )
 
-    return chain, retriever
+    return chain, get_last_reranked

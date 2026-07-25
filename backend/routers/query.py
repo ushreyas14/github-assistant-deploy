@@ -17,12 +17,14 @@ async def query_repo(req: QueryRequest, auth: AuthContext = Depends(get_auth_con
         # Load full documents from MongoDB for BM25 hybrid retriever
         documents = await load_chunks_for_repo(req.repo_name, auth.user_id)
 
-        chain, retriever = build_rag_chain(
+        chain, get_last_reranked = build_rag_chain(
             vectorstore, documents, top_k=req.top_k
         )
 
         answer = chain.invoke(req.question)
-        sources = retriever.invoke(req.question)
+
+        # Use the same reranked docs that the LLM saw (not a second retrieval)
+        sources = get_last_reranked()
 
         return {
             "repo_name": req.repo_name,
