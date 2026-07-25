@@ -96,12 +96,25 @@ if "repo_name" not in st.session_state:
 
 # ── Build chain lazily (only once per session) ─────────────
 if st.session_state.get("chain") is None:
-    with st.spinner("Connecting to Pinecone..."):
+    with st.spinner("Connecting to Pinecone & MongoDB..."):
         if "user_id" not in st.session_state:
             st.error("Missing user ID. Please load a repo again.")
             st.stop()
+
+        import asyncio
+        from mongodb import load_chunks_for_repo
+
         vs = load_vectorstore(st.session_state["repo_name"], st.session_state["user_id"])
-        chain, retriever = build_rag_chain(vs)
+
+        # Load full documents from MongoDB for BM25 hybrid retriever
+        documents = asyncio.run(
+            load_chunks_for_repo(
+                st.session_state["repo_name"],
+                st.session_state["user_id"],
+            )
+        )
+
+        chain, retriever = build_rag_chain(vs, documents)
         st.session_state["chain"]     = chain
         st.session_state["retriever"] = retriever
 
@@ -140,7 +153,7 @@ if prompt := st.chat_input(f"Ask about {st.session_state.get('repo_name', 'the r
     if sources:
         with st.expander(f"📎 {len(sources)} source chunks used"):
             for i, doc in enumerate(sources, 1):
-                src = doc.metadata.get("source", "unknown")
+                src = doc.metadata.get("file_path") or doc.metadata.get("source", "unknown")
                 ext = doc.metadata.get("extension", "").lstrip(".")
                 st.markdown(f"**[{i}] `{src}`**")
                 st.code(doc.page_content[:400] + "...", language=ext or "text")

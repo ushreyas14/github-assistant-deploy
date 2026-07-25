@@ -44,3 +44,12 @@ frontend/dist/
 frontend/.env.local
 
 interview_prep.html
+
+# Scratch / test files
+test.js
+mongo_test.py
+test_mongodb.py
+test_mongo_live.py
+compare_retrieval.py
+Untitled-*.txt
+*.log
