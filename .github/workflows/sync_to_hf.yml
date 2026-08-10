@@ -1,28 +1,29 @@
 name: CD - Deploy to Hugging Face
 
 on:
-workflow_run:
-workflows: ["CI"]
-types:
-- completed
-branches:
-- main
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
 
 jobs:
-deploy:
-name: Deploy to Hugging Face
-if: ${{ github.event.workflow_run.conclusion == 'success' }}
-runs-on: ubuntu-latest
+  deploy:
+    name: Deploy to Hugging Face
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
 
-```
-steps:
-  - name: Checkout code
-    uses: actions/checkout@v4
-    with:
-      ref: ${{ github.event.workflow_run.head_sha }}
-      fetch-depth: 0
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
 
-  - name: Push to Hugging Face Space
-    run: |
-      git push https://ushreyas014:${{ secrets.HF_TOKEN }}@huggingface.co/spaces/ushreyas014/github-assistant-api HEAD:main --force
-```
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git push https://ushreyas014:${HF_TOKEN}@huggingface.co/spaces/ushreyas014/github-assistant-api HEAD:main --force
