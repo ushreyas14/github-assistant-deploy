@@ -87,8 +87,8 @@ def extract_imports(language: str, code: str) -> list[str]:
 
     if language in {"javascript", "typescript"}:
         modules: list[str] = []
-        modules.extend(re.findall(r"\\bimport\\s+[^;]*?from\\s+['\"]([^'\"]+)['\"]", code))
-        modules.extend(re.findall(r"\\brequire\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)", code))
+        modules.extend(re.findall(r"\bimport\s+[^;]*?from\s+['\"]([^'\"]+)['\"]", code))
+        modules.extend(re.findall(r"\brequire\(\s*['\"]([^'\"]+)['\"]\s*\)", code))
 
         normalized: list[str] = []
         for mod in modules:

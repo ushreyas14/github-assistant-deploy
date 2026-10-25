@@ -1,0 +1,3 @@
+# Runtime dependencies plus tools needed only for running the test suite in CI/local dev.
+-r requirements.txt
+pytest>=8.0.0
