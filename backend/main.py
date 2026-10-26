@@ -5,6 +5,7 @@ from backend.routers.ingest import router as ingest_router
 from backend.routers.query import router as query_router
 from backend.routers.repos import router as repos_router
 import os 
+from config import GROQ_MODEL
 
 app  = FastAPI()
 
@@ -35,6 +36,7 @@ def health_check():
         "pinecone_key_set": pine_key != "NOT_SET",
         "pinecone_index": pine_idx.strip() if pine_idx else pine_idx,
         "groq_key_set": groq_key != "NOT_SET",
+        "groq_model": GROQ_MODEL,
         "mongodb_uri_set": mongo_uri != "NOT_SET" and bool(mongo_uri.strip()),
     }
 

@@ -1,0 +1,173 @@
+name: Jira issue to GitHub issue
+
+on:
+  workflow_dispatch:
+    inputs:
+      jira_issue_key:
+        description: Jira issue key (for example, PROJ-123)
+        type: string
+        required: true
+      issue_type:
+        description: Jira issue type
+        type: choice
+        options:
+          - Bug
+          - Task
+        required: true
+      summary:
+        description: Jira issue summary
+        type: string
+        required: true
+      description:
+        description: Jira issue description (optional)
+        type: string
+        required: false
+      priority:
+        description: Jira priority (optional)
+        type: string
+        required: false
+      jira_issue_url:
+        description: Full Jira issue URL
+        type: string
+        required: true
+      jira_labels:
+        description: Jira labels, comma-separated (optional)
+        type: string
+        required: false
+      dry_run:
+        description: Validate and check for duplicates without creating anything
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  issues: write
+
+concurrency:
+  group: jira-issue-${{ inputs.jira_issue_key || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  create-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate, deduplicate, and create GitHub issue
+        uses: actions/github-script@v7
+        env:
+          JIRA_ISSUE_KEY: ${{ inputs.jira_issue_key }}
+          JIRA_ISSUE_TYPE: ${{ inputs.issue_type }}
+          JIRA_SUMMARY: ${{ inputs.summary }}
+          JIRA_DESCRIPTION: ${{ inputs.description }}
+          JIRA_PRIORITY: ${{ inputs.priority }}
+          JIRA_ISSUE_URL: ${{ inputs.jira_issue_url }}
+          JIRA_LABELS: ${{ inputs.jira_labels }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const required = {
+              jira_issue_key: process.env.JIRA_ISSUE_KEY,
+              issue_type: process.env.JIRA_ISSUE_TYPE,
+              summary: process.env.JIRA_SUMMARY,
+              jira_issue_url: process.env.JIRA_ISSUE_URL,
+            };
+            for (const [name, value] of Object.entries(required)) {
+              if (!value || !value.trim()) {
+                core.setFailed(`Missing required input: ${name}`);
+                return;
+              }
+            }
+
+            const jiraKey = process.env.JIRA_ISSUE_KEY.trim();
+            const issueType = process.env.JIRA_ISSUE_TYPE.trim();
+            const summary = process.env.JIRA_SUMMARY.trim();
+            const description = process.env.JIRA_DESCRIPTION || '';
+            const priority = process.env.JIRA_PRIORITY || '';
+            const jiraUrl = process.env.JIRA_ISSUE_URL.trim();
+            const dryRun = process.env.DRY_RUN === 'true';
+
+            if (!/^[A-Z][A-Z0-9]+-\d+$/.test(jiraKey)) {
+              core.setFailed('Jira issue key must look like PROJ-123 (uppercase project key and numeric issue number).');
+              return;
+            }
+            if (!['Bug', 'Task'].includes(issueType)) {
+              core.setFailed('Unsupported issue type. Only Bug and Task are accepted.');
+              return;
+            }
+            let parsedJiraUrl;
+            try {
+              parsedJiraUrl = new URL(jiraUrl);
+            } catch {
+              core.setFailed('Jira issue URL must be a valid HTTPS URL.');
+              return;
+            }
+            if (parsedJiraUrl.protocol !== 'https:') {
+              core.setFailed('Jira issue URL must use HTTPS.');
+              return;
+            }
+
+            const { owner, repo } = context.repo;
+            const marker = `Jira issue: ${jiraKey}`;
+            const query = `repo:${owner}/${repo} is:issue "${marker}"`;
+            const search = await github.rest.search.issuesAndPullRequests({ q: query, per_page: 100 });
+            const duplicate = search.data.items.find((item) =>
+              !item.pull_request &&
+              (item.body || '').split(/\r?\n/).some((line) => line.trim() === marker)
+            );
+            if (duplicate) {
+              core.notice(`Already synced: ${marker}. Existing GitHub issue: ${duplicate.html_url}`);
+              return;
+            }
+
+            const jiraLabels = [...new Set((process.env.JIRA_LABELS || '')
+              .split(',').map((label) => label.trim()).filter(Boolean))];
+            const requestedLabels = [...new Set([
+              'jira-synced',
+              issueType.toLowerCase(),
+              ...jiraLabels,
+            ])];
+            const body = [
+              marker,
+              `Jira issue type: ${issueType}`,
+              `Jira priority: ${priority.trim() || 'Not set'}`,
+              `Jira labels: ${jiraLabels.length ? jiraLabels.join(', ') : 'None'}`,
+              `Source: ${jiraUrl}`,
+              '',
+              '### Description',
+              description.trim() || '_No description provided._',
+            ].join('\n');
+
+            if (dryRun) {
+              core.notice(`Dry run: would create "${summary}" with marker "${marker}" and labels: ${requestedLabels.join(', ')}.`);
+              return;
+            }
+
+            // Create or reuse labels individually. A missing/invalid Jira label
+            // should produce a warning, not prevent creation of the issue.
+            const usableLabels = [];
+            for (const name of requestedLabels) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name });
+                usableLabels.push(name);
+              } catch (error) {
+                if (error.status !== 404) {
+                  core.warning(`Could not check label "${name}" (${error.status || 'API error'}); continuing without it.`);
+                  continue;
+                }
+                try {
+                  await github.rest.issues.createLabel({ owner, repo, name, color: '1D76DB' });
+                  usableLabels.push(name);
+                } catch (createError) {
+                  core.warning(`Could not create label "${name}" (${createError.status || 'API error'}); continuing without it.`);
+                }
+              }
+            }
+
+            const created = await github.rest.issues.create({
+              owner,
+              repo,
+              title: summary,
+              body,
+              labels: usableLabels,
+            });
+            core.notice(`Created GitHub issue for ${marker}: ${created.data.html_url}`);

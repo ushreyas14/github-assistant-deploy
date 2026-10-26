@@ -25,7 +25,13 @@ except:
     MONGODB_URI      = (os.getenv("MONGODB_URI")      or "").strip()
 
 # Rest of config stays the same
-GROQ_MODEL  = (os.getenv("GROQ_MODEL") or "openai/gpt-oss-120b").strip()
+_DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
+_configured_groq_model = (os.getenv("GROQ_MODEL") or "").strip()
+# Hugging Face Space variables survive code commits. Do not let a previously
+# configured, retired model override the working default after a redeploy.
+if _configured_groq_model == "llama-3.3-70b-versatile":
+    _configured_groq_model = ""
+GROQ_MODEL = _configured_groq_model or _DEFAULT_GROQ_MODEL
 EMBED_MODEL = "all-MiniLM-L6-v2"
 EMBED_DIM   = 384
 CHUNK_SIZE    = 1000

@@ -90,7 +90,7 @@ flowchart TD
 | API Framework | FastAPI (Python) |
 | Auth and DB | Supabase |
 | LLM Orchestration | LangChain |
-| LLM Provider | Groq (llama3-70b-8192) |
+| LLM Provider | Groq (`openai/gpt-oss-120b`) |
 | Embeddings | sentence-transformers (Hugging Face) |
 | Vector Store | Pinecone (serverless, cosine similarity) |
 | Metadata Store | MongoDB |
@@ -160,7 +160,7 @@ Create a `.env` file in the root directory:
 
 ```ini
 GROQ_API_KEY=your_groq_api_key
-GROQ_MODEL=llama3-70b-8192
+GROQ_MODEL=openai/gpt-oss-120b
 
 PINECONE_API_KEY=your_pinecone_api_key
 PINECONE_INDEX_NAME=github-rag
