@@ -14,8 +14,13 @@ async def query_repo(req: QueryRequest, auth: AuthContext = Depends(get_auth_con
     try:
         vectorstore = load_vectorstore(req.repo_name, auth.user_id)
 
-        # Load full documents from MongoDB for BM25 hybrid retriever
-        documents = await load_chunks_for_repo(req.repo_name, auth.user_id)
+        # MongoDB provides the keyword side of hybrid retrieval. Keep the query
+        # path available through Pinecone if that optional store is unreachable.
+        try:
+            documents = await load_chunks_for_repo(req.repo_name, auth.user_id)
+        except Exception as exc:
+            print(f"MongoDB chunk lookup failed; using Pinecone retrieval only: {exc}")
+            documents = []
 
         chain, get_last_reranked = build_rag_chain(
             vectorstore, documents, top_k=req.top_k

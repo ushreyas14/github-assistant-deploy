@@ -6,7 +6,7 @@ load_dotenv()
 # Sanitize env vars at the OS level so third-party libs
 # (e.g. langchain_pinecone reads PINECONE_API_KEY directly)
 # also get clean values without trailing whitespace/newlines.
-for _key in ("GROQ_API_KEY", "PINECONE_API_KEY", "PINECONE_INDEX_NAME",
+for _key in ("GROQ_API_KEY", "GROQ_MODEL", "PINECONE_API_KEY", "PINECONE_INDEX_NAME",
              "SUPABASE_URL", "SUPABASE_ANON_KEY"):
     _val = os.environ.get(_key)
     if _val:
@@ -25,7 +25,7 @@ except:
     MONGODB_URI      = (os.getenv("MONGODB_URI")      or "").strip()
 
 # Rest of config stays the same
-GROQ_MODEL  = "llama-3.3-70b-versatile"
+GROQ_MODEL  = (os.getenv("GROQ_MODEL") or "openai/gpt-oss-120b").strip()
 EMBED_MODEL = "all-MiniLM-L6-v2"
 EMBED_DIM   = 384
 CHUNK_SIZE    = 1000

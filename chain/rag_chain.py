@@ -174,24 +174,19 @@ def build_rag_chain(
     # -----------------------------
     # BM25 RETRIEVER
     # -----------------------------
-    bm25_retriever = BM25Retriever.from_documents(
-        documents
-    )
+    if documents:
+        bm25_retriever = BM25Retriever.from_documents(documents)
+        bm25_retriever.k = k
 
-    bm25_retriever.k = k
-
-    # -----------------------------
-    # HYBRID RETRIEVER
-    # -----------------------------
-    retriever = EnsembleRetriever(
-        retrievers=[
-            bm25_retriever,
-            vector_retriever
-        ],
-
-        # BM25, Vector
-        weights=[0.4, 0.6]
-    )
+        # Hybrid retrieval uses MongoDB's full chunk corpus and Pinecone vectors.
+        retriever = EnsembleRetriever(
+            retrievers=[bm25_retriever, vector_retriever],
+            weights=[0.4, 0.6],  # BM25, vector
+        )
+    else:
+        # MongoDB may be temporarily unavailable; Pinecone still has chunk text
+        # and supports semantic retrieval for this namespace.
+        retriever = vector_retriever
 
     # -----------------------------
     # RETRIEVE + RERANK
