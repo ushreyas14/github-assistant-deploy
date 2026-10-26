@@ -15,9 +15,6 @@ from langchain_community.retrievers import BM25Retriever
 
 from langchain.retrievers import EnsembleRetriever
 
-from sentence_transformers import CrossEncoder
-
-
 from config import (
     GROQ_API_KEY,
     GROQ_MODEL,
@@ -25,12 +22,9 @@ from config import (
 )
 
 
-# -----------------------------
-# RERANKER MODEL
-# -----------------------------
-reranker = CrossEncoder(
-    "BAAI/bge-reranker-base"
-)
+# Load the reranker on first use so API startup does not block on a cold model
+# download. Retrieval can still serve results if the model download fails.
+reranker = None
 
 
 SYSTEM_PROMPT = """
@@ -116,6 +110,12 @@ def rerank_documents(
         return []
 
     try:
+        global reranker
+        if reranker is None:
+            from sentence_transformers import CrossEncoder
+
+            reranker = CrossEncoder("BAAI/bge-reranker-base")
+
         pairs = [
             (query, doc.page_content)
             for doc in docs

@@ -17,8 +17,15 @@ async def ingest(req: IngestRequest, auth: AuthContext = Depends(get_auth_contex
         docs = load_repo_documents(path)
         chunks = chunk_documents(docs)
 
-        # Store full metadata in MongoDB (no size limits)
-        await store_chunks_metadata(chunks, name, auth.user_id)
+        # MongoDB provides full metadata for hybrid retrieval, but Pinecone also
+        # stores the chunk text. Continue ingestion if MongoDB is unavailable so
+        # the repository remains queryable with vector retrieval alone.
+        metadata_store = "mongodb"
+        try:
+            await store_chunks_metadata(chunks, name, auth.user_id)
+        except Exception as exc:
+            metadata_store = "pinecone_only"
+            print(f"MongoDB chunk storage failed; continuing with Pinecone: {exc}")
 
         # Store trimmed metadata + embeddings in Pinecone
         ingest_to_pinecone(chunks, name, auth.user_id)
@@ -34,7 +41,8 @@ async def ingest(req: IngestRequest, auth: AuthContext = Depends(get_auth_contex
             "status": "success",
             "repo_name": name,
             "namespace": namespace,
-            "chunks": len(chunks)
+            "chunks": len(chunks),
+            "metadata_store": metadata_store,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
